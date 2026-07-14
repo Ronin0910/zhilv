@@ -3,56 +3,53 @@ import re
 from typing import Optional, List, Dict, Any
 
 from fastmcp import Client
+from langchain_core.tools import BaseTool
+from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from app.config import get_settings
 from app.models.schemas import POIInfo, WeatherInfo, RouteInfo, Location
 
 # 全局MCP客户端实例
-_mcp_client: Optional[Client] = None
-_mcp_tools: list[str] = []
-
-def _get_mcp_config() -> dict:
-    """获取MCP服务器配置"""
-    settings = get_settings()
-
-    if not settings.amap_api_key:
-        raise ValueError("高德地图API Key未配置,请在.env文件中设置AMAP_API_KEY")
-
-    return{
-        "macServers": {
-            "amap": {
-                "command": "uvx",
-                "agrs": ["amap-mcp-server"],
-                "env": {"AMAP_MAPS_API_KEY": settings.amap_api_key}
-            }
-        }
-    }
+_mcp_client: Optional[MultiServerMCPClient] = None
+_mcp_tools: list[BaseTool] = []
 
 async def init_mcp_client() -> Client:
     """
     初始化MCP客户端
 
     Returns:
-         已连接fastmcp Client实例
+         Langchain BaseTool列表
     """
     global _mcp_client, _mcp_tools
 
-    if _mcp_client is None:
-        config = _get_mcp_config()
-        _mcp_client = Client(config)
-        await _mcp_client.__aenter__()
+    if _mcp_client is not None:
+        return _mcp_client
 
-        # 获取可用工具列表
-        tools = await _mcp_client.list_tools()
-        _mcp_tools = [tool.name for tool in tools]
+    settings = get_settings()
 
-        print(f"✅ 高德地图MCP客户端初始化成功")
-        print(f"   工具数量: {len(_mcp_tools)}")
-        print(f"   可用工具: {', '.join(_mcp_tools[:5])}")
-        if len(_mcp_tools) > 5:
-            print(f"   ... 还有 {len(_mcp_tools) - 5} 个工具")
+    if not settings.amap_api_key:
+        raise ValueError("高德地图API Key未配置，请在.env文件中设置AMAP_API_KEY")
 
-    return _mcp_client
+    # 创建MCP客户端配置
+    mcp_config = {
+        "amap": {
+            "command": "uvx",
+            "args": ["amap-mcp-server"],
+            "env": {"AMAP_MAPS_API_KEY": settings.amap_api_key},
+            "transport": "stdio"
+        }
+    }
+
+    _mcp_client = MultiServerMCPClient(mcp_config)
+    _mcp_tools = await _mcp_client.get_tools()
+
+    print(f"✅ MCP工具加载成功")
+    print(f"   工具数量: {len(_mcp_tools)}")
+    for tool in _mcp_tools:
+        print(f"     - {tool.name}")
+
+    return _mcp_tools
+
 
 
 async def close_mcp_client():
@@ -69,6 +66,103 @@ def get_mcp_tools_list() -> List[str]:
     """获取可用工具名称"""
     return _mcp_tools.copy()
 
+def _find_tool(name: str) -> Optional[BaseTool]:
+    """按名称查找工具"""
+    for tool in _mcp_tools:
+        if tool.name == name:
+            return tool
+    return None
+
+
+# ============ 确定性JSON解析工具函数 ============
+
+def _extract_json(text: str) -> Optional[dict]:
+    """
+    从MCP返回的文本中提取JSON对象。
+    处理三种情况：纯JSON、```json代码块、文本中嵌入的JSON。
+
+    Args:
+        text: MCP返回的原始文本
+
+    Returns:
+        解析后的dict，失败返回None
+    """
+    if not text or not isinstance(text, str):
+        return None
+
+    text = text.strip()
+
+    # 1. 尝试直接解析
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # 2. 尝试从 ```json ... ``` 代码块中提取
+    code_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if code_block:
+        try:
+            return json.loads(code_block.group(1))
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # 3. 尝试提取文本中第一个完整的JSON对象（贪婪匹配最外层花括号）
+    brace_match = re.search(r'\{.*\}', text, re.DOTALL)
+    if brace_match:
+        try:
+            return json.loads(brace_match.group())
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return None
+
+
+def _parse_location(loc_str: str) -> Optional[Location]:
+    """
+    解析高德坐标字符串 "lng,lat" 为 Location 对象
+
+    Args:
+        loc_str: 坐标字符串，格式 "116.397428,39.90923"
+
+    Returns:
+        Location 对象，失败返回 None
+    """
+    if not loc_str or not isinstance(loc_str, str):
+        return None
+    parts = loc_str.strip().split(',')
+    if len(parts) == 2:
+        try:
+            lng, lat = float(parts[0]), float(parts[1])
+            if -180 <= lng <= 180 and -90 <= lat <= 90:
+                return Location(longitude=lng, latitude=lat)
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    """安全转换为float"""
+    if val is None:
+        return default
+    try:
+        # 移除可能的单位后缀
+        if isinstance(val, str):
+            val = val.replace('米', '').replace('秒', '').replace('分钟', '').strip()
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def _safe_int(val: Any, default: int = 0) -> int:
+    """安全转换为int"""
+    if val is None:
+        return default
+    try:
+        if isinstance(val, str):
+            val = val.replace('米', '').replace('秒', '').replace('分钟', '').strip()
+        return int(float(val))
+    except (ValueError, TypeError):
+        return default
 
 class AmapService:
     """高德地图服务封装类"""
@@ -115,10 +209,30 @@ class AmapService:
                 "citylimit": str(citylimit).lower()
             })
 
-            print(f"POI搜索结果：{result[:200]}...")
+            data = _extract_json(result)
+            if not data:
+                return []
 
-            # TODO： 解析实际的POI数据
-            return []
+            pois = []
+            # 高德API返回格式: {"pois": [{"id":"...", "name":"...", "type":"...", "address":"...", "location":"lng,lat", "tel":"..."}]}
+            raw_pois = data.get("pois", [])
+            if not isinstance(raw_pois, list):
+                return []
+
+            for item in raw_pois:
+                if not isinstance(item, dict):
+                    continue
+                loc = _parse_location(item.get("location", ""))
+                if loc:
+                    pois.append(POIInfo(
+                        id=str(item.get("id", "")),
+                        name=str(item.get("name", "")),
+                        type=str(item.get("type", "")),
+                        address=str(item.get("address", "")),
+                        location=loc,
+                        tel=item.get("tel") or None,
+                    ))
+            return pois
         except Exception as e:
             print(f"❌ POI搜索失败: {str(e)}")
             return []
@@ -138,9 +252,29 @@ class AmapService:
             result = await self._call_tool("maps_weather",{
                 "city": city
             })
-            print(f"天气查询结果: {result[:200]}...")
-            # TODO： 解析实际的天气数据
-            return []
+            data = _extract_json(result)
+            if not data:
+                return []
+
+            weather_list = []
+            # 高德API返回格式: {"forecasts": [{"date":"...", "dayweather":"晴", "nightweather":"多云", "daytemp":"30", "nighttemp":"20", "daywind":"东南", "daypower":"3-4"}]}
+            raw_forecasts = data.get("forecasts", [])
+            if not isinstance(raw_forecasts, list):
+                return []
+
+            for item in raw_forecasts:
+                if not isinstance(item, dict):
+                    continue
+                weather_list.append(WeatherInfo(
+                    date=str(item.get("date", "")),
+                    day_weather=str(item.get("dayweather", "")),
+                    night_weather=str(item.get("nightweather", "")),
+                    day_temp=_safe_int(item.get("daytemp", 0)),
+                    night_temp=_safe_int(item.get("nighttemp", 0)),
+                    wind_direction=str(item.get("daywind", "")),
+                    wind_power=str(item.get("daypower", "")),
+                ))
+            return weather_list
         except Exception as e:
             print(f"❌ 天气查询失败: {str(e)}")
             return []
@@ -184,9 +318,51 @@ class AmapService:
 
             result = await self._call_tool(tool_name, arguments)
 
-            print(f"路线规划结果: {result[:200]}...")
+            data = _extract_json(result)
+            if not data:
+                return {}
 
-             # TODO: 解析实际的路线数据
+            route = data.get("route", {})
+
+            if route_type == "transit":
+                # 公交路线: {"route": {"transits": [{"distance":"...", "duration":"...", "segments":[...]}]}}
+                transits = route.get("transits", [])
+                if isinstance(transits, list) and transits:
+                    t = transits[0]
+                    dist = _safe_float(t.get("distance", 0))
+                    dur = _safe_int(t.get("duration", 0))
+                    return {
+                        "distance": dist,
+                        "duration": dur,
+                        "route_type": route_type,
+                        "description": f"公交路线，距离{dist}米，预计{dur // 60}分钟",
+                    }
+            else:
+                # 步行/驾车: {"route": {"paths": [{"distance":"...", "duration":"...", "steps":[...]}]}}
+                paths = route.get("paths", [])
+                if isinstance(paths, list) and paths:
+                    p = paths[0]
+                    dist = _safe_float(p.get("distance", 0))
+                    dur = _safe_int(p.get("duration", 0))
+
+                    # 提取路线步骤描述
+                    steps_desc = ""
+                    steps = p.get("steps", [])
+                    if isinstance(steps, list):
+                        step_names = [
+                            s.get("instruction", "")
+                            for s in steps[:5]
+                            if isinstance(s, dict) and s.get("instruction")
+                        ]
+                        steps_desc = " → ".join(step_names)
+
+                    return {
+                        "distance": dist,
+                        "duration": dur,
+                        "route_type": route_type,
+                        "description": steps_desc or f"距离{dist}米，预计{dur // 60}分钟",
+                    }
+
             return {}
 
         except Exception as e:
@@ -210,9 +386,15 @@ class AmapService:
             if city:
                 arguments["city"] = city
             result = await self._call_tool("maps_geo", arguments)
-            print(f"地理编码结果: {result[:200]}...")
+            data = _extract_json(result)
+            if not data:
+                return None
 
-            # TODO: 解析实际的坐标数据
+            # 高德API返回格式: {"geocodes": [{"formatted_address":"...", "location":"lng,lat"}]}
+            geocodes = data.get("geocodes", [])
+            if isinstance(geocodes, list) and geocodes:
+                return _parse_location(geocodes[0].get("location", ""))
+
             return None
 
         except Exception as e:
