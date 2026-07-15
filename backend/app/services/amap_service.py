@@ -1,29 +1,44 @@
 import json
+import os
 import re
+import shutil
+import sys
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from fastmcp import Client
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from app.config import get_settings
 from app.models.schemas import POIInfo, WeatherInfo, RouteInfo, Location
 
+
+def _find_uvx() -> str:
+    """查找 uvx 可执行文件路径"""
+    # 直接从当前 Python 环境的 Scripts 目录获取
+    uvx_path = Path(sys.executable).parent / "Scripts" / "uvx.exe"
+    if uvx_path.exists():
+        return str(uvx_path)
+    return "uvx"
+
+
 # 全局MCP客户端实例
 _mcp_client: Optional[MultiServerMCPClient] = None
 _mcp_tools: list[BaseTool] = []
+_mcp_initialized: bool = False
 
-async def init_mcp_client() -> Client:
+async def init_mcp_client() -> list:
     """
     初始化MCP客户端
 
     Returns:
          Langchain BaseTool列表
     """
-    global _mcp_client, _mcp_tools
+    global _mcp_client, _mcp_tools, _mcp_initialized
 
-    if _mcp_client is not None:
-        return _mcp_client
+    if _mcp_initialized:
+        return _mcp_tools
+    _mcp_initialized = True
 
     settings = get_settings()
 
@@ -31,22 +46,29 @@ async def init_mcp_client() -> Client:
         raise ValueError("高德地图API Key未配置，请在.env文件中设置AMAP_API_KEY")
 
     # 创建MCP客户端配置
+    uvx_cmd = _find_uvx()
+    print(f"  uvx路径: {uvx_cmd}")
     mcp_config = {
         "amap": {
-            "command": "uvx",
+            "command": uvx_cmd,
             "args": ["amap-mcp-server"],
             "env": {"AMAP_MAPS_API_KEY": settings.amap_api_key},
             "transport": "stdio"
         }
     }
 
-    _mcp_client = MultiServerMCPClient(mcp_config)
-    _mcp_tools = await _mcp_client.get_tools()
+    try:
+        _mcp_client = MultiServerMCPClient(mcp_config)
+        _mcp_tools = await _mcp_client.get_tools()
 
-    print(f"✅ MCP工具加载成功")
-    print(f"   工具数量: {len(_mcp_tools)}")
-    for tool in _mcp_tools:
-        print(f"     - {tool.name}")
+        print(f"✅ MCP工具加载成功")
+        print(f"   工具数量: {len(_mcp_tools)}")
+        for tool in _mcp_tools:
+            print(f"     - {tool.name}")
+    except Exception as e:
+        print(f"⚠️  MCP工具初始化失败: {e}")
+        _mcp_client = None
+        _mcp_tools = []
 
     return _mcp_tools
 
@@ -54,17 +76,19 @@ async def init_mcp_client() -> Client:
 
 async def close_mcp_client():
     """关闭MCP客户端"""
-    global _mcp_client, _mcp_tools
+    global _mcp_client, _mcp_tools, _mcp_initialized
     if _mcp_client is not None:
-        await _mcp_client.__aexit__(None, None, None)
+        # langchain-mcp-adapters 0.1.0+ 不再支持 context manager
+        # 只需清理引用即可
         _mcp_client = None
         _mcp_tools = []
+        _mcp_initialized = False
         print("👋 高德地图MCP客户端已关闭")
 
 
-def get_mcp_tools_list() -> List[str]:
-    """获取可用工具名称"""
-    return _mcp_tools.copy()
+def get_mcp_tools_list() -> List[BaseTool]:
+    """获取可用工具列表"""
+    return _mcp_tools.copy() if _mcp_tools else []
 
 def _find_tool(name: str) -> Optional[BaseTool]:
     """按名称查找工具"""
@@ -168,7 +192,8 @@ class AmapService:
     """高德地图服务封装类"""
 
     def __init__(self):
-        self.client = _mcp_client()
+        global _mcp_client
+        self.client = _mcp_client
 
     async def _call_tool(self, tool_name: str, arguments: dict) -> str:
         """
@@ -284,7 +309,7 @@ class AmapService:
                          destination_address: str,
                          origin_city: Optional[str] = None,
                          destination_city: Optional[str] = None,
-                         route_type: str = "walking") -> List[RouteInfo]:
+                         route_type: str = "walking") -> Optional[RouteInfo]:
         """
         规划路线
 
@@ -320,7 +345,7 @@ class AmapService:
 
             data = _extract_json(result)
             if not data:
-                return {}
+                return None
 
             route = data.get("route", {})
 
@@ -331,12 +356,12 @@ class AmapService:
                     t = transits[0]
                     dist = _safe_float(t.get("distance", 0))
                     dur = _safe_int(t.get("duration", 0))
-                    return {
-                        "distance": dist,
-                        "duration": dur,
-                        "route_type": route_type,
-                        "description": f"公交路线，距离{dist}米，预计{dur // 60}分钟",
-                    }
+                    return RouteInfo(
+                        distance=dist,
+                        duration=dur,
+                        route_type=route_type,
+                        description=f"公交路线，距离{dist}米，预计{dur // 60}分钟",
+                    )
             else:
                 # 步行/驾车: {"route": {"paths": [{"distance":"...", "duration":"...", "steps":[...]}]}}
                 paths = route.get("paths", [])
@@ -356,18 +381,18 @@ class AmapService:
                         ]
                         steps_desc = " → ".join(step_names)
 
-                    return {
-                        "distance": dist,
-                        "duration": dur,
-                        "route_type": route_type,
-                        "description": steps_desc or f"距离{dist}米，预计{dur // 60}分钟",
-                    }
+                    return RouteInfo(
+                        distance=dist,
+                        duration=dur,
+                        route_type=route_type,
+                        description=steps_desc or f"距离{dist}米，预计{dur // 60}分钟",
+                    )
 
-            return {}
+            return None
 
         except Exception as e:
             print(f"❌ 路线规划失败: {str(e)}")
-            return {}
+            return None
 
 
     async def geocode(self, address: str, city: Optional[str] = None) -> Optional[Location]:

@@ -39,36 +39,36 @@ class UnsplashService:
             data = response.json()
             results = data.get("results", [])
 
-            #提取图片URL
+            # 提取图片URL
             photos = []
             for photo in results:
                 photos.append({
                     "id": photo.get("id"),
-                    "url": photo.get("urls, {}").get("regular"),
-                    "thumb": photo.get("urls, {}").get("thumb"),
+                    "url": photo.get("urls", {}).get("regular"),
+                    "thumb": photo.get("urls", {}).get("thumb"),
                     "description": photo.get("description") or photo.get("alt_description"),
-                    "photograher": photo.get("user", {}).get("name")
+                    "photographer": photo.get("user", {}).get("name")
                 })
 
-                return photos
+            return photos
         except Exception as e:
             print(f"❌ Unsplash搜索失败: {str(e)}")
             return []
 
-        def get_photo_url(self, query: str) -> Optional[dict]:
-            """
-            获取单张图片URL
+    def get_photo_url(self, query: str) -> Optional[str]:
+        """
+        获取单张图片URL
 
-            Args:
-                query: 搜索关键词
+        Args:
+            query: 搜索关键词
 
-            Returns:
-                图片URL
-            """
-            photos = self.search_photos(query, 1)
-            if photos:
-                return photos[0].get("url")
-            return None
+        Returns:
+            图片URL
+        """
+        photos = self.search_photos(query, 1)
+        if photos:
+            return photos[0].get("url")
+        return None
 
 
 # 全局服务实例

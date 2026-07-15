@@ -3,9 +3,9 @@ import json
 import traceback
 from datetime import timedelta, datetime
 from typing import Optional
-from wsgiref.util import request_uri
 
-from langchain_classic.agents import create_react_agent
+from langchain.agents import create_agent
+from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.models.schemas import TripRequest, TripPlan, DayPlan, Attraction, Location, Meal
@@ -119,31 +119,33 @@ class MultiAgentTripPlanner:
     def __init__(self, llm, tools: list):
         try:
             self.llm = llm
+            if not isinstance(tools, list):
+                raise TypeError(f"tools 参数必须是 list 类型，而不是 {type(tools).__name__}")
             self.tools = tools
             self.tool_names = [tool.name for tool in tools]
 
             # 创建景点搜索Agent
             print("  - 创建景点搜索Agent...")
-            self.attraction_agent = create_react_agent(
+            self.attraction_agent = create_agent(
                 model=self.llm,
                 tools=self.tools,
-                prompt=ATTRACTION_AGENT_PROMPT
+                system_prompt=ATTRACTION_AGENT_PROMPT
             )
 
             # 创建天气查询Agent
             print("  - 创建天气查询Agent...")
-            self.weather_agent = create_react_agent(
+            self.weather_agent = create_agent(
                 model=self.llm,
                 tools=self.tools,
-                prompt=WEATHER_AGENT_PROMPT
+                system_prompt=WEATHER_AGENT_PROMPT
             )
 
             # 创建酒店推荐Agent
             print("  - 创建酒店推荐Agent...")
-            self.hotel_agent = create_react_agent(
+            self.hotel_agent = create_agent(
                 model=self.llm,
                 tools=self.tools,
-                prompt=HOTEL_AGENT_PROMPT
+                system_prompt=HOTEL_AGENT_PROMPT
             )
 
             print(f"✅ 多智能体系统初始化成功")
@@ -154,18 +156,18 @@ class MultiAgentTripPlanner:
             traceback.print_exc()
             raise
 
-    def _invoke_agent(self, agent, query: str) -> str:
+    async def _invoke_agent(self, agent, query: str) -> str:
         """
         调用agent并提取响应文本
 
         Args:
-            agnet: 智能体
+            agent: 智能体
             query: 用户查询
 
         Returns:
             Agent响应文本
         """
-        result = agent.invoke({
+        result = await agent.ainvoke({
             "messages": [HumanMessage(query)]
         })
 
@@ -195,9 +197,9 @@ class MultiAgentTripPlanner:
         response = self.llm.invoke(mesages)
         return response.content
 
-    def plan_trip(self, request: TripRequest) -> TripPlan:
+    async def plan_trip(self, request: TripRequest) -> TripPlan:
         """
-        使用多智能体写作生成旅行计划
+        使用多智能体协作生成旅行计划
 
         Args:
             request: 旅行请求
@@ -210,30 +212,28 @@ class MultiAgentTripPlanner:
             print(f"\n{'=' * 60}")
             print(f"🚀 开始多智能体协作规划旅行 (LangChain)...")
 
-
-
             # 步骤1: 景点搜索Agent搜索景点
             print("📍 步骤1: 搜索景点...")
-            attraction_query = self.build_attraction_query(request)
-            attraction_response = self._invoke_agent(self.attraction_agent, attraction_query)
+            attraction_query = self._build_attraction_query(request)
+            attraction_response = await self._invoke_agent(self.attraction_agent, attraction_query)
             print(f"景点搜索结果: {attraction_response[:200]}...\n")
 
             # 步骤2: 天气查询Agent查询天气
             print("🌤️  步骤2: 查询天气...")
             weather_query = f"请查询{request.city}的天气信息"
-            weather_response = self._invoke_planner(self.weather_agent, weather_query)
+            weather_response = await self._invoke_agent(self.weather_agent, weather_query)
             print(f"天气查询结果: {weather_response[:200]}...\n")
 
             # 步骤3: 酒店推荐Agent搜索酒店
             print("🏨 步骤3: 搜索酒店...")
             hotel_query = f"请搜索{request.city}的{request.accommodation}酒店"
-            hotel_response = self._invoke_agent(self.hotel_agent, hotel_query)
+            hotel_response = await self._invoke_agent(self.hotel_agent, hotel_query)
             print(f"酒店搜索结果: {hotel_response[:200]}...\n")
 
             # 步骤4: 行程规划Agent整合信息生成计划
             print("📋 步骤4: 生成行程计划...")
-            planner_query = self.build_planner_query(request, attraction_response, weather_response, hotel_response)
-            planner_response = self._invoke_planner(planner_query, planner_query)
+            planner_query = self._build_planner_query(request, attraction_response, weather_response, hotel_response)
+            planner_response = self._invoke_planner(planner_query)
             print(f"行程规划结果: {planner_response[:300]}...\n")
 
             # 解析最终计划
@@ -265,7 +265,7 @@ class MultiAgentTripPlanner:
 - 天数: {request.travel_days}天
 - 交通方式: {request.transportation}
 - 住宿: {request.accommodation}
-- 偏好: {', '.join(request.preferences) if request.preferences else '无'}
+- 偏好: {', '.join(request.preference) if request.preference else '无'}
 
 **景点信息:**
 {attractions}

@@ -51,17 +51,18 @@ class RouteRequest(BaseModel):
 class Location(BaseModel):
     """地理位置"""
     longitude: float = Field(..., description="经度")
-    latitude: float = Field(..., description="维度")
+    latitude: float = Field(..., description="纬度")
 
 class Attraction(BaseModel):
     """景点信息"""
     name: str = Field(..., description="景点名称")
     address: str = Field(..., description="地址")
-    loaction: Location = Field(..., description="经纬度坐标")
-    visit_duration: str = Field(..., description="景点描述")
+    location: Location = Field(..., description="经纬度坐标")
+    visit_duration: Union[int, str] = Field(default=120, description="建议游览时长（分钟）")
+    description: Optional[str] = Field(default="", description="景点描述")
     category: str = Field(..., description="景点类别")
-    rating: str = Field(default=None, description="评分")
-    photos: Optional[List[str]] = Field(default=list, description="景点图片URL列表")
+    rating: Optional[str] = Field(default=None, description="评分")
+    photos: Optional[List[str]] = Field(default=[], description="景点图片URL列表")
     pos_id: Optional[str] = Field(default="", description="POI ID")
     image_url: Optional[str] = Field(default=None, description="图片URL")
     ticket_price: int = Field(default=0, description = "门票价格（元）")
@@ -92,8 +93,8 @@ class Hotel(BaseModel):
 class DayPlan(BaseModel):
     """单日行程"""
     date: str = Field(..., description="日期 YYYY-MM-DD")
-    day_index: str = Field(..., description="第几天开始（从0开始）")
-    description: str = Field(..., description="当日行程描述0")
+    day_index: Union[int, str] = Field(default=0, description="第几天（从0开始）")
+    description: str = Field(..., description="当日行程描述")
     transportation: str = Field(..., description="交通方式")
     accommodation: str = Field(..., description="住宿")
     hotel: Optional[Hotel] = Field(default=None, description="推荐酒店")
@@ -126,14 +127,14 @@ class WeatherInfo(BaseModel):
 
 class WeatherResponse(BaseModel):
     """天气查询响应"""
-    success: bool = Field(..., default="是否成功")
+    success: bool = Field(default=False, description="是否成功")
     message: str = Field(default="", description="消息")
     data: List[WeatherInfo] = Field(default=[], description="天气信息")
 
 
 class Budget(BaseModel):
     """预算信息"""
-    total_attraction: int = Field(default=0, description="景点门票总费用")
+    total_attractions: int = Field(default=0, description="景点门票总费用")
     total_hotels: int = Field(default=0, description="酒店总费用")
     total_meals: int = Field(default=0, description="餐饮总费用")
     total_transportation: int = Field(default=0, description="交通总费用")
@@ -153,9 +154,9 @@ class TripPlan(BaseModel):
 
 class TripPlanResponse(BaseModel):
     """旅行计划响应"""
-    success: bool = Field(..., default="是否成功")
+    success: bool = Field(default=False, description="是否成功")
     message: str = Field(default="", description="消息")
-    data: List[TripPlan] = Field(default=[], description="旅行计划数据")
+    data: Optional[TripPlan] = Field(default=None, description="旅行计划数据")
 
 class POIInfo(BaseModel):
     """POI信息"""
@@ -168,7 +169,7 @@ class POIInfo(BaseModel):
 
 class POISearchResponse(BaseModel):
     """POI搜索响应"""
-    success: bool = Field(..., default="是否成功")
+    success: bool = Field(default=False, description="是否成功")
     message: str = Field(default="", description="消息")
     data: List[POIInfo] = Field(default=[], description="POI列表")
 
@@ -181,13 +182,13 @@ class RouteInfo(BaseModel):
 
 class RouteResponse(BaseModel):
     """路线规划响应"""
-    success: bool = Field(..., default="是否成功")
+    success: bool = Field(default=False, description="是否成功")
     message: str = Field(default="", description="消息")
     data: List[RouteInfo] = Field(default=[], description="路线信息")
 
 # ============ 错误响应 ============
 class ErrorResponse(BaseModel):
     """错误响应"""
-    success: bool = Field(..., default="是否成功")
+    success: bool = Field(default=False, description="是否成功")
     message: str = Field(..., description="错误消息")
     error_code: Optional[str] = Field(default=None, description="错误代码")

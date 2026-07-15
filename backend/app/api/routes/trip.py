@@ -2,7 +2,6 @@
 import traceback
 
 from fastapi import APIRouter, HTTPException
-from scripts.regsetup import description
 
 from app.agents.trip_planner_agent import get_trip_planner_agent, get_planner_info
 from app.models.schemas import TripPlan, TripRequest, TripPlanResponse
@@ -11,8 +10,8 @@ router = APIRouter(prefix="/trip", tags=["旅行规划"])
 
 @router.post(
     "/plan",
-    response_model=TripPlan,
-    summery="生成旅行计划",
+    response_model=TripPlanResponse,
+    summary="生成旅行计划",
     description="根据用户输入的旅行需求，生成详细的旅行计划"
 )
 async def plan_trip(request: TripRequest):
@@ -33,7 +32,7 @@ async def plan_trip(request: TripRequest):
 
         # 生成旅行计划
         print("🚀 开始生成旅行计划...")
-        trip_plan = agent.plan_trip(request)
+        trip_plan = await agent.plan_trip(request)
 
         return TripPlanResponse(
             success=True,
@@ -50,7 +49,7 @@ async def plan_trip(request: TripRequest):
 
 @router.get(
     "/health",
-    summery="健康检查",
+    summary="健康检查",
     description="检查旅行规划服务是否正常"
 )
 async def health_check():
