@@ -1,11 +1,11 @@
 """多智能体旅行规划系统 - LangChain版本"""
+import asyncio
 import json
 import traceback
 from datetime import timedelta, datetime
 from typing import Optional
 
 from langchain.agents import create_agent
-from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.models.schemas import TripRequest, TripPlan, DayPlan, Attraction, Location, Meal
@@ -212,26 +212,23 @@ class MultiAgentTripPlanner:
             print(f"\n{'=' * 60}")
             print(f"🚀 开始多智能体协作规划旅行 (LangChain)...")
 
-            # 步骤1: 景点搜索Agent搜索景点
-            print("📍 步骤1: 搜索景点...")
+            # 并行化景点、天气、酒店三个agent
             attraction_query = self._build_attraction_query(request)
-            attraction_response = await self._invoke_agent(self.attraction_agent, attraction_query)
-            print(f"景点搜索结果: {attraction_response[:200]}...\n")
-
-            # 步骤2: 天气查询Agent查询天气
-            print("🌤️  步骤2: 查询天气...")
             weather_query = f"请查询{request.city}的天气信息"
-            weather_response = await self._invoke_agent(self.weather_agent, weather_query)
-            print(f"天气查询结果: {weather_response[:200]}...\n")
-
-            # 步骤3: 酒店推荐Agent搜索酒店
-            print("🏨 步骤3: 搜索酒店...")
             hotel_query = f"请搜索{request.city}的{request.accommodation}酒店"
-            hotel_response = await self._invoke_agent(self.hotel_agent, hotel_query)
+
+            attraction_response, weather_response, hotel_response = await asyncio.gather(
+                self._invoke_agent(self.attraction_agent, attraction_query),
+                self._invoke_agent(self.weather_agent, weather_query),
+                self._invoke_agent(self.hotel_agent, hotel_query)
+            )
+
+            print(f"景点搜索结果: {attraction_response[:200]}...\n")
+            print(f"天气查询结果: {weather_response[:200]}...\n")
             print(f"酒店搜索结果: {hotel_response[:200]}...\n")
 
-            # 步骤4: 行程规划Agent整合信息生成计划
-            print("📋 步骤4: 生成行程计划...")
+            # 行程规划Agent整合信息生成计划
+            print("📋 生成行程计划...")
             planner_query = self._build_planner_query(request, attraction_response, weather_response, hotel_response)
             planner_response = self._invoke_planner(planner_query)
             print(f"行程规划结果: {planner_response[:300]}...\n")
