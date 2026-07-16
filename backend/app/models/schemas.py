@@ -166,6 +166,7 @@ class POIInfo(BaseModel):
     address: str = Field(..., description="地址")
     location: Location = Field(..., description="经纬度坐标")
     tel: Optional[str] = Field(default=None, description="电话")
+    photos: Optional[List[str]] = Field(default=[], description="图片URL列表")
 
 class POISearchResponse(BaseModel):
     """POI搜索响应"""

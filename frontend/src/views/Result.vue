@@ -432,7 +432,15 @@ const loadAttractionPhotos = async () => {
 
   tripPlan.value.days.forEach(day => {
     day.attractions.forEach(attraction => {
-      const promise = fetch(`/api/poi/photo?name=${encodeURIComponent(attraction.name)}`)
+      // 优先使用后端已返回的 photos 字段（高德POI图片）
+      if (attraction.photos && attraction.photos.length > 0) {
+        attractionPhotos.value[attraction.name] = attraction.photos[0]
+        return
+      }
+
+      // 没有预置图片时，调用后端 API 获取（高德优先，Unsplash兜底）
+      const city = tripPlan.value?.city || ''
+      const promise = fetch(`/api/poi/photo?name=${encodeURIComponent(attraction.name)}&city=${encodeURIComponent(city)}`)
         .then(res => res.json())
         .then(data => {
           if (data.success && data.data.photo_url) {

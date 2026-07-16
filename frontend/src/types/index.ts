@@ -14,6 +14,7 @@ export interface Attraction {
   category?: string
   rating?: number
   image_url?: string
+  photos?: string[]
   ticket_price?: number
 }
 

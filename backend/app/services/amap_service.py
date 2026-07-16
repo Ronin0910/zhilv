@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
+import requests as http_requests
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -194,6 +195,68 @@ class AmapService:
     def __init__(self):
         global _mcp_client
         self.client = _mcp_client
+        self._api_key = get_settings().amap_api_key
+
+    async def search_poi_rest(self, keywords: str, city: str) -> List[POIInfo]:
+        """
+        通过高德REST API直接搜索POI（不依赖MCP）
+
+        Args:
+            keywords: 搜索关键词
+            city: 城市
+
+        Returns:
+            POI信息列表（含photos）
+        """
+        try:
+            url = "https://restapi.amap.com/v3/place/text"
+            params = {
+                "keywords": keywords,
+                "city": city,
+                "citylimit": "true",
+                "key": self._api_key,
+                "output": "json",
+            }
+
+            resp = http_requests.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+
+            if data.get("status") != "1":
+                print(f"⚠️ 高德REST API返回错误: {data.get('info', '未知错误')}")
+                return []
+
+            pois = []
+            for item in data.get("pois", []):
+                loc = _parse_location(item.get("location", ""))
+                if not loc:
+                    continue
+
+                # 提取图片列表
+                photos = []
+                raw_photos = item.get("photos", [])
+                if isinstance(raw_photos, list):
+                    for photo in raw_photos:
+                        if isinstance(photo, dict):
+                            url_val = photo.get("url") or ""
+                            if url_val:
+                                photos.append(url_val)
+
+                pois.append(POIInfo(
+                    id=str(item.get("id", "")),
+                    name=str(item.get("name", "")),
+                    type=str(item.get("type", "")),
+                    address=str(item.get("address", "")),
+                    location=loc,
+                    tel=item.get("tel") or None,
+                    photos=photos,
+                ))
+
+            return pois
+
+        except Exception as e:
+            print(f"❌ 高德REST API搜索失败: {e}")
+            return []
 
     async def _call_tool(self, tool_name: str, arguments: dict) -> str:
         """
@@ -244,11 +307,30 @@ class AmapService:
             if not isinstance(raw_pois, list):
                 return []
 
+            # 调试：查看第一个POI的数据结构
+            if raw_pois and isinstance(raw_pois[0], dict):
+                first_keys = list(raw_pois[0].keys())
+                print(f"  🔍 POI数据字段: {first_keys}")
+                print(f"     photos字段: {'photos' in raw_pois[0]}")
+
             for item in raw_pois:
                 if not isinstance(item, dict):
                     continue
                 loc = _parse_location(item.get("location", ""))
                 if loc:
+                    # 提取图片列表
+                    photos = []
+                    raw_photos = item.get("photos", [])
+                    if isinstance(raw_photos, list):
+                        for photo in raw_photos:
+                            if isinstance(photo, dict):
+                                url = photo.get("url") or photo.get("title", "")
+                                if url:
+                                    photos.append(url)
+                    # 调试：查看高德返回的原始photos数据
+                    if not photos and raw_photos:
+                        print(f"  ⚠️ POI '{item.get('name')}' photos字段存在但提取为空: {raw_photos[:2]}")
+
                     pois.append(POIInfo(
                         id=str(item.get("id", "")),
                         name=str(item.get("name", "")),
@@ -256,6 +338,7 @@ class AmapService:
                         address=str(item.get("address", "")),
                         location=loc,
                         tel=item.get("tel") or None,
+                        photos=photos,
                     ))
             return pois
         except Exception as e:

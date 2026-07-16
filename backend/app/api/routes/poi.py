@@ -87,27 +87,38 @@ async def search_poi(keywords: str, city: str = "北京"):
 @router.get(
     "/photo",
     summary="获取景点图片",
-    description="根据景点名称从Unsplash获取图片"
+    description="优先从高德地图POI获取图片，失败时回退到Unsplash"
 )
-async def get_attraction_photo(name: str):
+async def get_attraction_photo(name: str, city: str = ""):
     """
-    获取景点图片
+    获取景点图片（高德优先，Unsplash兜底）
 
     Args:
         name: 景点名称
+        city: 城市名称（可选，提高高德搜索精度）
 
     Returns:
         图片URL
     """
     try:
-        unsplash_service = get_unsplash_service()
+        photo_url = None
 
-        # 搜索景点图片
-        photo_url = unsplash_service.get_photo_url(f"{name} China landmark")
+        # 1. 优先从高德地图POI搜索获取图片
+        if city:
+            try:
+                amap_service = get_amap_service()
+                pois = await amap_service.search_poi_rest(name, city)
+                if pois and pois[0].photos:
+                    photo_url = pois[0].photos[0]
+            except Exception as e:
+                print(f"⚠️ 高德POI搜索图片失败，回退到Unsplash: {str(e)}")
 
+        # 2. 高德没有结果时，回退到Unsplash
         if not photo_url:
-            # 如果没找到,尝试只用景点名称搜索
-            photo_url = unsplash_service.get_photo_url(name)
+            unsplash_service = get_unsplash_service()
+            photo_url = unsplash_service.get_photo_url(f"{name} China landmark")
+            if not photo_url:
+                photo_url = unsplash_service.get_photo_url(name)
 
         return {
             "success": True,

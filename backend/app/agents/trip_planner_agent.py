@@ -9,7 +9,7 @@ from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.models.schemas import TripRequest, TripPlan, DayPlan, Attraction, Location, Meal
-from app.services.amap_service import get_mcp_tools_list, init_mcp_client
+from app.services.amap_service import get_mcp_tools_list, init_mcp_client, get_amap_service
 from app.services.llm_service import get_llm
 
 # ============ Agent提示词 ============
@@ -68,7 +68,8 @@ PLANNER_AGENT_PROMPT = """你是行程规划专家。你的任务是根据景点
           "visit_duration": 120,
           "description": "景点详细描述",
           "category": "景点类别",
-          "ticket_price": 60
+          "ticket_price": 60,
+          "photos": ["图片URL"]
         }
       ],
       "meals": [
@@ -111,7 +112,10 @@ PLANNER_AGENT_PROMPT = """你是行程规划专家。你的任务是根据景点
    - 景点门票价格(ticket_price)
    - 餐饮预估费用(estimated_cost)
    - 酒店预估费用(estimated_cost)
-   - 预算汇总(budget)包含各项总费用"""
+   - 预算汇总(budget)包含各项总费用
+8. **必须保留景点图片**:
+   - 如果景点信息中包含photos(图片URL列表)，必须原样保留在输出JSON中
+   - 如果没有photos字段，设为空数组[]"""
 
 class MultiAgentTripPlanner:
     """多智能体旅行规划系统"""
@@ -236,6 +240,9 @@ class MultiAgentTripPlanner:
             # 解析最终计划
             trip_plan = self._parse_response(planner_response, request)
 
+            # 用高德POI为每个景点补充图片
+            trip_plan = await self._enrich_photos(trip_plan, request.city)
+
             print(f"{'=' * 60}")
             print(f"✅ 旅行计划生成完成!")
             print(f"{'=' * 60}\n")
@@ -321,6 +328,41 @@ class MultiAgentTripPlanner:
             print(f"⚠️  解析响应失败: {str(e)}")
             print(f"   将使用备用方案生成计划")
             return self._create_fallback_plan(request)
+
+    async def _enrich_photos(self, trip_plan: TripPlan, city: str) -> TripPlan:
+        """
+        为行程中的每个景点补充高德POI图片
+
+        Args:
+            trip_plan: 已生成的行程计划
+            city: 城市名称
+
+        Returns:
+            补充图片后的行程计划
+        """
+        try:
+            amap_service = get_amap_service()
+
+            for day in trip_plan.days:
+                for attraction in day.attractions:
+                    # 已有图片则跳过
+                    if attraction.photos:
+                        continue
+
+                    try:
+                        pois = await amap_service.search_poi_rest(attraction.name, city)
+                        if pois and pois[0].photos:
+                            attraction.photos = pois[0].photos
+                            print(f"  📷 {attraction.name} → 获取到 {len(pois[0].photos)} 张图片")
+                        else:
+                            print(f"  ⚠️ {attraction.name} → 高德无图片")
+                    except Exception as e:
+                        print(f"  ❌ {attraction.name} → 获取图片失败: {e}")
+
+        except Exception as e:
+            print(f"⚠️ 补充图片过程出错: {e}")
+
+        return trip_plan
 
     def _create_fallback_plan(self, request: TripRequest) -> TripPlan:
         """创建备用计划（当agent调用失败时）"""
