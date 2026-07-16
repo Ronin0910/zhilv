@@ -1,4 +1,4 @@
-"""多智能体旅行规划系统 - LangChain版本"""
+"""多智能体旅行规划系统"""
 import asyncio
 import json
 import traceback
@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.models.schemas import TripRequest, TripPlan, DayPlan, Attraction, Location, Meal
 from app.services.amap_service import get_mcp_tools_list, init_mcp_client, get_amap_service
-from app.services.llm_service import get_llm
+from app.services.llm_service import llm_service
 
 # ============ Agent提示词 ============
 
@@ -424,7 +424,7 @@ async def init_trip_planner():
         tools = await init_mcp_client()
 
     # 2.获取LLM实例
-    llm = get_llm()
+    llm = llm_service.get_llm()
 
     # 3.创建规划器
     _planner = MultiAgentTripPlanner(tools=tools, llm=llm)
