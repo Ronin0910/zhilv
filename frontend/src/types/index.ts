@@ -94,3 +94,23 @@ export interface TripPlanResponse {
   data?: TripPlan
 }
 
+// RAG 问答相关类型
+export interface QARequest {
+  question: string
+  session_id?: string
+}
+
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: number
+  isStreaming?: boolean
+}
+
+export interface QAHealthResponse {
+  status: 'ok' | 'degraded'
+  pinecone: { status: string; detail?: string }
+  mongodb: { status: string; detail?: string }
+}
+
