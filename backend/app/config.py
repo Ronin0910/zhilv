@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     rag_chunk_overlap: int = 50
     rag_enable_reranker: bool = False
 
+    # RAG 配置 - MongoDB
+    mongodb_url: str = "mongodb://localhost:27017"
+    mongodb_database: str = "trip_planner"
+    mongodb_collection: str = "chat_history"
+
     # 日志配置
     log_level: str = "INFO"
 

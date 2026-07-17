@@ -5,6 +5,7 @@ from pinecone import Pinecone, ServerlessSpec
 from typing import Optional
 
 from app.config import get_settings
+from app.services.document_loader import document_loader
 from app.services.embedding_service import embedding_service
 
 
@@ -85,7 +86,7 @@ class VectorStoreService():
         self._check_ready()
         return self._store.delete(filter=filter_dict)
 
-    def get_index_staus(self) -> dict:
+    def get_index_stats(self) -> dict:
         """获取索引统计信息"""
         if not self._pc:
             raise RuntimeError("Pinecone 未初始化")

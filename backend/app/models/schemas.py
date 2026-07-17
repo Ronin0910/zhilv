@@ -47,6 +47,12 @@ class RouteRequest(BaseModel):
     route_type: str = Field(default="walking", description="路线类型: walking/driving/transit")
 
 
+class QARequest(BaseModel):
+    """问答请求"""
+    question: str = Field(..., min_length=1, description="用户问题")
+    session_id: str | None = Field(default=None, description="会话ID，不传则自动创建新会话")
+
+
 # ================响应模型================
 class Location(BaseModel):
     """地理位置"""
@@ -186,6 +192,7 @@ class RouteResponse(BaseModel):
     success: bool = Field(default=False, description="是否成功")
     message: str = Field(default="", description="消息")
     data: List[RouteInfo] = Field(default=[], description="路线信息")
+
 
 # ============ 错误响应 ============
 class ErrorResponse(BaseModel):

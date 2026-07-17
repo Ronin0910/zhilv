@@ -3,10 +3,14 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.agents.rag_agent import init_rag_agent
+from app.services.memory_service import memory_service
+from app.services.vector_store import vector_store_service
 from ..config import get_settings, validate_config, print_config
 from ..agents.trip_planner_agent import init_trip_planner
 from ..services.amap_service import init_mcp_client, close_mcp_client
-from .routes import trip, poi, map as map_routes
+from .routes import trip, poi, map as map_routes, qa
 
 # 获取配置
 settings = get_settings()
@@ -48,6 +52,21 @@ async def lifespan(app: FastAPI):
         print(f"⚠️  旅行规划系统初始化失败: {e}")
         print("   /api/trip/plan 接口可能不可用")
 
+    try:
+        vector_store_service.get_store()  # 触发 Pinecone 懒初始化
+    except Exception as e:
+        print(f"⚠️ Pinecone 初始化失败（RAG 功能不可用）: {e}")
+
+    try:
+        memory_service.init()
+    except Exception as e:
+        print(f"⚠️ MongoDB 初始化失败（多轮对话不可用）: {e}")
+
+    try:
+        await init_rag_agent()
+    except Exception as e:
+        print(f"⚠️ RAG Agent 初始化失败（问答功能不可用）: {e}")
+
     print("\n" + "="*60)
     print("📚 API文档: http://localhost:8000/docs")
     print("📖 ReDoc文档: http://localhost:8000/redoc")
@@ -85,6 +104,7 @@ app.add_middleware(
 app.include_router(trip.router, prefix="/api")
 app.include_router(poi.router, prefix="/api")
 app.include_router(map_routes.router, prefix="/api")
+app.include_router(qa.router, prefix="/api")
 
 
 @app.get("/")
