@@ -433,8 +433,12 @@ const loadAttractionPhotos = async () => {
   tripPlan.value.days.forEach(day => {
     day.attractions.forEach(attraction => {
       // 优先使用后端已返回的 photos 字段（高德POI图片）
-      if (attraction.photos && attraction.photos.length > 0) {
-        attractionPhotos.value[attraction.name] = attraction.photos[0]
+      // 校验必须是真实 URL，过滤掉 LLM 输出的占位文本如 "图片URL"
+      const validPhoto = attraction.photos?.find(
+        p => p.startsWith('http://') || p.startsWith('https://')
+      )
+      if (validPhoto) {
+        attractionPhotos.value[attraction.name] = validPhoto
         return
       }
 
@@ -537,6 +541,28 @@ const getStaticMapUrl = async (): Promise<string | null> => {
   return null
 }
 
+// 将导出容器中的所有外部图片转为 base64（通过后端代理解决跨域问题）
+const convertImagesToBase64 = async (container: HTMLElement) => {
+  const imgs = Array.from(container.querySelectorAll('img'))
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
+  await Promise.all(
+    imgs.map(async (img) => {
+      const src = img.src
+      if (!src || src.startsWith('data:')) return
+      try {
+        const resp = await fetch(`${API_BASE}/api/poi/proxy-image?url=${encodeURIComponent(src)}`)
+        const data = await resp.json()
+        if (data.success && data.data.data_url) {
+          img.src = data.data.data_url
+        }
+      } catch {
+        // 转换失败时保持原样
+      }
+    })
+  )
+}
+
 // 替换导出容器中的地图为静态图片
 const replaceMapWithStatic = async (exportContainer: HTMLElement) => {
   const mapContainer = exportContainer.querySelector('#amap-container')
@@ -589,8 +615,41 @@ const exportAsImage = async () => {
     exportContainer.style.backgroundColor = '#f5f7fa'
     exportContainer.style.padding = '20px'
 
-    // 复制所有内容
+    // 强制展开所有折叠面板（在真实 DOM 上操作，克隆后再恢复）
+    const allCollapseItems = element.querySelectorAll('.ant-collapse-item')
+    const originalStates: { el: Element; wasActive: boolean }[] = []
+    allCollapseItems.forEach(item => {
+      const wasActive = item.classList.contains('ant-collapse-item-active')
+      originalStates.push({ el: item, wasActive })
+      if (!wasActive) {
+        item.classList.add('ant-collapse-item-active')
+      }
+      // 强制展开内容
+      const content = item.querySelector('.ant-collapse-content') as HTMLElement
+      if (content) {
+        content.style.setProperty('display', 'block', 'important')
+        content.style.setProperty('height', 'auto', 'important')
+        content.style.setProperty('max-height', 'none', 'important')
+        content.style.setProperty('overflow', 'visible', 'important')
+      }
+    })
+
+    // 复制所有内容（此时所有面板都已展开）
     exportContainer.innerHTML = element.innerHTML
+
+    // 恢复原始折叠状态
+    originalStates.forEach(({ el, wasActive }) => {
+      if (!wasActive) {
+        el.classList.remove('ant-collapse-item-active')
+      }
+      const content = (el as HTMLElement).querySelector('.ant-collapse-content') as HTMLElement
+      if (content) {
+        content.style.removeProperty('display')
+        content.style.removeProperty('height')
+        content.style.removeProperty('max-height')
+        content.style.removeProperty('overflow')
+      }
+    })
 
     // 替换地图为静态图片
     await replaceMapWithStatic(exportContainer)
@@ -671,6 +730,9 @@ const exportAsImage = async () => {
       el.style.setProperty('margin-bottom', '12px')
     })
 
+    // 将外部图片转为 base64，避免 html2canvas 跨域问题
+    await convertImagesToBase64(exportContainer)
+
     // 添加到body(隐藏)
     exportContainer.style.position = 'absolute'
     exportContainer.style.left = '-9999px'
@@ -716,8 +778,41 @@ const exportAsPDF = async () => {
     exportContainer.style.backgroundColor = '#f5f7fa'
     exportContainer.style.padding = '20px'
 
-    // 复制所有内容
+    // 强制展开所有折叠面板（在真实 DOM 上操作，克隆后再恢复）
+    const allCollapseItems = element.querySelectorAll('.ant-collapse-item')
+    const originalStates: { el: Element; wasActive: boolean }[] = []
+    allCollapseItems.forEach(item => {
+      const wasActive = item.classList.contains('ant-collapse-item-active')
+      originalStates.push({ el: item, wasActive })
+      if (!wasActive) {
+        item.classList.add('ant-collapse-item-active')
+      }
+      // 强制展开内容
+      const content = item.querySelector('.ant-collapse-content') as HTMLElement
+      if (content) {
+        content.style.setProperty('display', 'block', 'important')
+        content.style.setProperty('height', 'auto', 'important')
+        content.style.setProperty('max-height', 'none', 'important')
+        content.style.setProperty('overflow', 'visible', 'important')
+      }
+    })
+
+    // 复制所有内容（此时所有面板都已展开）
     exportContainer.innerHTML = element.innerHTML
+
+    // 恢复原始折叠状态
+    originalStates.forEach(({ el, wasActive }) => {
+      if (!wasActive) {
+        el.classList.remove('ant-collapse-item-active')
+      }
+      const content = (el as HTMLElement).querySelector('.ant-collapse-content') as HTMLElement
+      if (content) {
+        content.style.removeProperty('display')
+        content.style.removeProperty('height')
+        content.style.removeProperty('max-height')
+        content.style.removeProperty('overflow')
+      }
+    })
 
     // 替换地图为静态图片
     await replaceMapWithStatic(exportContainer)
@@ -797,6 +892,9 @@ const exportAsPDF = async () => {
       el.style.setProperty('border-radius', '8px')
       el.style.setProperty('margin-bottom', '12px')
     })
+
+    // 将外部图片转为 base64，避免 html2canvas 跨域问题
+    await convertImagesToBase64(exportContainer)
 
     // 添加到body(隐藏)
     exportContainer.style.position = 'absolute'

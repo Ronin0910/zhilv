@@ -1,6 +1,8 @@
 """POI相关路由"""
+import base64
 from typing import Optional
 
+import httpx
 from fastapi import HTTPException, APIRouter
 from pydantic import BaseModel
 
@@ -135,3 +137,38 @@ async def get_attraction_photo(name: str, city: str = ""):
             status_code=500,
             detail=f"获取景点图片失败: {str(e)}"
         )
+
+
+@router.get(
+    "/proxy-image",
+    summary="图片代理",
+    description="服务端获取外部图片并返回 base64，解决前端跨域问题"
+)
+async def proxy_image(url: str):
+    """
+    代理获取外部图片，返回 base64 data URL
+
+    Args:
+        url: 图片的完整 URL
+
+    Returns:
+        base64 编码的图片数据
+    """
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
+            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "image/jpeg")
+            b64 = base64.b64encode(resp.content).decode()
+            return {
+                "success": True,
+                "data": {
+                    "data_url": f"data:{content_type};base64,{b64}"
+                }
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": str(e),
+            "data": {"data_url": None}
+        }

@@ -345,8 +345,11 @@ class MultiAgentTripPlanner:
 
             for day in trip_plan.days:
                 for attraction in day.attractions:
-                    # 已有图片则跳过
-                    if attraction.photos:
+                    # 已有真实图片则跳过（过滤掉 LLM 输出的占位文本）
+                    if attraction.photos and any(
+                        p.startswith("http://") or p.startswith("https://")
+                        for p in attraction.photos
+                    ):
                         continue
 
                     try:
