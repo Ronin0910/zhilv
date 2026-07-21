@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
     try:
         memory_service.init()
     except Exception as e:
-        print(f"⚠️ MongoDB 初始化失败（多轮对话不可用）: {e}")
+        print(f"⚠️ Redis 初始化失败（多轮对话不可用）: {e}")
 
     try:
         await init_rag_agent()

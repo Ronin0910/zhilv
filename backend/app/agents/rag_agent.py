@@ -2,7 +2,7 @@
 import json
 from typing import AsyncGenerator, Optional
 
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from app.rag.prompts import build_context_string, RAG_AGENT_PROMPT
@@ -67,7 +67,7 @@ class RAGAgent:
                 full_answer = "抱歉，无法生成回答，请稍后重试。"
                 yield f"event: token\ndata: {json.dumps({'content': full_answer}, ensure_ascii=False)}\n\n"
 
-            # 6. 保存本轮对话到 MongoDB
+            # 6. 保存本轮对话到 Redis
             if session_id:
                 memory_service.add_qa(session_id, question, full_answer)
 
@@ -78,13 +78,13 @@ class RAGAgent:
             yield f"event: error\ndata: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
 
     def _to_history_messages(self, messages: list) -> list:
-        """将 langchain 消息列表转换为 ChatPromptTemplate 可用的消息列表"""
+        """将消息列表转换为 ChatPromptTemplate 可用的消息列表"""
         result = []
         for msg in messages:
-            if msg.type == "human":
-                result.append(HumanMessage(content=msg.content))
-            elif msg.type == "ai":
-                result.append(AIMessage(content=msg.content))
+            if msg["type"] == "human":
+                result.append(HumanMessage(content=msg["content"]))
+            elif msg["type"] == "ai":
+                result.append(AIMessage(content=msg["content"]))
         return result
 
 

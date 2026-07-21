@@ -1,8 +1,7 @@
-"""短期记忆服务 — 管理多轮对话历史"""
-from langchain_mongodb import MongoDBChatMessageHistory
-from langchain_core.messages import HumanMessage, AIMessage
-from pymongo import MongoClient
+"""短期记忆服务 — 管理多轮对话历史(MongoDB)"""
+import json
 from typing import Optional
+import redis
 
 from app.config import get_settings
 
@@ -10,51 +9,30 @@ from app.config import get_settings
 class MemoryService:
 
     def __init__(self):
-        self._client: Optional[MongoClient] = None
-        self._db = None
-        self._collection = None
+        self._client: Optional[redis.Redis] = None
         self.settings = get_settings()
 
     def init(self):
-        """初始化MongoDB连接 + TTL索引"""
+        """初始化redis连接"""
         if self._client:
             return
 
-        url = self.settings.mongodb_url
-        db_name = self.settings.mongodb_database
-        collection_name = self.settings.mongodb_collection
+        url = self.settings.redis_url
+        ttl = self.settings.session_ttl_seconds
 
-        print(f"正在连接 MongoDB...")
-        self._client = MongoClient(url, serverSelectionTimeoutMS=1000)
+        # 连接
+        print("正在连接 Redis...")
+        self._client = redis.from_url(url, decode_responses=True)
 
-        # 获取数据库和集合
-        self._db = self._client[db_name]
-        self._collection = self._db[collection_name]
+        # 验证连接
+        self._client.ping()
+        print(f"✅Redis连接成功")
+        print(f"   URL: {url}")
+        print(f"   会话过期: {ttl}s")
 
-        print(f"✅MongoDB连接成功")
-        print(f"   URI: {url}")
-        print(f"   数据库: {db_name}")
-        print(f"   集合: {collection_name}")
-
-
-    def get_history(self, session_id: str) -> MongoDBChatMessageHistory:
-        """
-        获取指定会话的聊天历史对象
-
-        Args:
-            session_id: str
-
-        Returns:
-            MongoDBChatMessageHistory 实例
-        """
-        self._check_ready()
-
-        return MongoDBChatMessageHistory(
-            connection_string=self.settings.mongodb_url,
-            session_id=session_id,
-            database_name=self.settings.mongodb_database,
-            collection_name=self.settings.mongodb_collection,
-        )
+    def _key(self, session_id: str) -> str:
+        """生成 Redis Key"""
+        return f"chat:{session_id}:messages"
 
     def add_qa(self, session_id: str, question: str, answer: str):
         """
@@ -65,39 +43,52 @@ class MemoryService:
             question: 用户问题
             answer: LLM 回答
         """
-        history = self.get_history(session_id)
-        history.add_message(HumanMessage(question))
-        history.add_message(AIMessage(answer))
+        self._check_ready()
+        key = self._key(session_id)
+        ttl = self.settings.session_ttl_seconds
 
-    def get_messages(self, session_id: str, max_turns: int = 10) -> list:
+        # 添加消息
+        self._client.rpush(key, json.dumps({"type": "human", "content": question}, ensure_ascii=False))
+        self._client.rpush(key, json.dumps({"type": "ai", "content": answer}, ensure_ascii=False))
+
+        # 每次写入都刷新TTL
+        self._client.expire(key, ttl)
+
+    def get_messages(self, session_id: str, max_turns: int = 3) -> list:
         """
-        获取最近 N 轮聊天历史
+        获取最近 N 轮聊天历史（手动截断）
 
         Args:
             session_id: 会话 ID
             max_turns: 最大轮数（每轮 = 1 human + 1 ai）
 
         Returns:
-            消息列表，每条是 HumanMessage 或 AIMessage
+            消息列表，每条是 {"type": "human"|"ai", "content": "..."} 的 dict
         """
-        history = self.get_history(session_id)
-        messages = history.messages
+        self._check_ready()
+        key = self._key(session_id)
 
-        # 取最近max_turns轮的消息
+        # 读取所有信息
+        raw_list = self._client.lrange(key, 0, -1)
+        messages = [json.loads(item) for item in raw_list]
+
+        # 只保留最近 max_turns 轮
         max_messages = max_turns * 2
         if len(messages) > max_messages:
             messages = messages[-max_messages:]
+
         return messages
 
-    def clear_session(self, session_id: str):
-        """清空指定会话的聊天历史"""
+    def clear_messages(self, session_id: str):
+        """清空指定会话的聊天记录"""
         self._check_ready()
-        history = self.get_history(session_id)
-        history.clear()
+        key = self._key(session_id)
+        self._client.delete(key)
 
     def _check_ready(self):
         if not self._client:
-            raise RuntimeError("MongoDB 未初始化，请先调用 init()")
+            raise RuntimeError("Redis 未初始化， 请先初始化")
+
 
 # 全局唯一实例
 memory_service = MemoryService()

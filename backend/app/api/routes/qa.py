@@ -3,6 +3,7 @@ import json
 import uuid
 import traceback
 
+import redis
 from fastapi import APIRouter, Request, HTTPException
 from starlette.responses import StreamingResponse
 
@@ -51,15 +52,15 @@ async def chat(req: QARequest, request: Request):
 async def clear_session(session_id: str):
     """清空指定会话的所有聊天历史"""
     try:
-        memory_service.clear_session(session_id)
+        memory_service.clear_messages(session_id)
         return {"message": f"会话 {session_id} 已清空"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/health", summary="RAG 服务健康检查")
 async def health_check():
-    """检查 RAG + MongoDB 服务是否正常"""
-    result = {"status": "ok", "pinecone": None, "mongodb": None}
+    """检查 RAG + Redis 服务是否正常"""
+    result = {"status": "ok", "pinecone": None, "Redis": None}
 
     # 检查 Pinecone
     try:
@@ -70,14 +71,13 @@ async def health_check():
         result["pinecone"] = {"status": "error", "detail": str(e)}
         result["status"] = "degraded"
 
-    # 检查 MongoDB
+    # 检查 Redis
     try:
-        from pymongo import MongoClient
-        client = MongoClient(memory_service.settings.mongodb_url, serverSelectionTimeoutMS=3000)
-        client.admin.command("ping")
-        result["mongodb"] = {"status": "ok"}
+        client = redis.from_url(memory_service.settings.redis_url, decode_responses=True)
+        client.ping()
+        result["redis"] = {"status": "ok"}
     except Exception as e:
-        result["mongodb"] = {"status": "error", "detail": str(e)}
+        result["redis"] = {"status": "error", "detail": str(e)}
         result["status"] = "degraded"
 
     return result

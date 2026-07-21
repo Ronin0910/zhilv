@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     mongodb_database: str = "trip_planner"
     mongodb_collection: str = "chat_history"
 
+    # Redis配置
+    redis_url: str = "redis://localhost:6379/0"
+    session_ttl_seconds: int = 3600
+
     # 日志配置
     log_level: str = "INFO"
 
