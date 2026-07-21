@@ -119,6 +119,7 @@
 import { ref, nextTick, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { marked } from 'marked'
 import { createQAStream, clearQASession } from '@/services/api'
 import type { ChatMessage } from '@/types'
 
@@ -154,15 +155,9 @@ function formatTime(ts: number): string {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
-// 简易 Markdown 渲染（加粗、换行、代码块）
+// Markdown 渲染（使用 marked 库）
 function renderMarkdown(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\n/g, '<br>')
+  return marked.parse(text, { breaks: true }) as string
 }
 
 // 滚动到底部
@@ -541,6 +536,65 @@ onBeforeUnmount(() => {
 }
 .message-wrapper.user .message-content :deep(code) {
   background: rgba(255, 255, 255, 0.2);
+}
+
+/* Markdown 标题 */
+.message-content :deep(h1),
+.message-content :deep(h2),
+.message-content :deep(h3) {
+  margin: 12px 0 8px;
+  font-weight: 600;
+}
+.message-content :deep(h1) { font-size: 18px; }
+.message-content :deep(h2) { font-size: 16px; }
+.message-content :deep(h3) { font-size: 15px; }
+
+/* Markdown 列表 */
+.message-content :deep(ul),
+.message-content :deep(ol) {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+.message-content :deep(li) {
+  margin: 4px 0;
+}
+
+/* Markdown 代码块 */
+.message-content :deep(pre) {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.message-content :deep(pre code) {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+}
+
+/* Markdown 引用 */
+.message-content :deep(blockquote) {
+  border-left: 3px solid #667eea;
+  padding-left: 12px;
+  margin: 8px 0;
+  color: #666;
+}
+
+/* Markdown 表格 */
+.message-content :deep(table) {
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.message-content :deep(th),
+.message-content :deep(td) {
+  border: 1px solid #ddd;
+  padding: 6px 12px;
+  text-align: left;
+}
+.message-content :deep(th) {
+  background: #f0f2f5;
 }
 .message-time {
   font-size: 11px;
