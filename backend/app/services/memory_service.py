@@ -54,7 +54,7 @@ class MemoryService:
         # 每次写入都刷新TTL
         self._client.expire(key, ttl)
 
-    def get_messages(self, session_id: str, max_turns: int = 3) -> list:
+    def get_messages(self, session_id: str, max_turns: int = 10) -> list:
         """
         获取最近 N 轮聊天历史（手动截断）
 

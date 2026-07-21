@@ -34,8 +34,8 @@ class Settings(BaseSettings):
     # LLM配置 (从环境变量读取)
     openai_api_key: str = ""
     openai_base_url: str = "https://ws-p8l69mnu623vlqhb.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
-    openai_model: str = "qwen-plus"
-    embedding_model: str = "text-embedding-v3"
+    openai_model: str = "qwen3.7-plus"
+    embedding_model: str = "qwen3.7-text-embedding"
 
     # RAG 配置 - Pinecone 向量数据库
     pinecone_api_key: str = ""
@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     # Redis配置
     redis_url: str = "redis://localhost:6379/0"
     session_ttl_seconds: int = 3600
+
+    # tavily配置
+    tavily_api_key: str = ""
 
     # 日志配置
     log_level: str = "INFO"
