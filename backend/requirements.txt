@@ -1,0 +1,33 @@
+# Web Framework & Server
+fastapi
+uvicorn[standard]
+starlette
+
+# Data Validation & Settings
+pydantic
+pydantic-settings
+python-dotenv
+
+# LangChain Ecosystem
+langchain
+langchain-core
+langchain-community
+langchain-pinecone
+langchain-text-splitters
+langchain-mcp-adapters
+langchain-tavily
+langchain-mongodb
+
+# Vector Database
+pinecone
+
+# Database & Cache
+redis
+pymongo
+
+# HTTP Clients
+requests
+httpx
+
+# Document Processing
+pypdf
